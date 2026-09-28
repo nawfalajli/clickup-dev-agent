@@ -1,0 +1,14 @@
+{
+  "name": "clickup-dev-agent",
+  "version": "1.0.0",
+  "description": "AI developer that picks up your assigned ClickUp tasks, develops them in your codebase with Claude Code, and delivers each as a merge request.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.js",
+    "once": "node src/index.js --once",
+    "dry-run": "node src/index.js --once --dry-run",
+    "test": "node --test"
+  }
+}
