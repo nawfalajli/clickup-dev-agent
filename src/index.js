@@ -5,6 +5,8 @@ import { handleTask } from './worker.js';
 import { hasDetails, pickRepo, taskRef } from './task.js';
 import * as git from './git.js';
 import { runClaude, runTests } from './agent.js';
+import { createNotifier } from './notify.js';
+import { jevJudge } from './jev.js';
 
 const args = new Set(process.argv.slice(2));
 const once = args.has('--once');
@@ -15,6 +17,8 @@ loadEnv();
 const cfg = loadConfig();
 const cu = new ClickUp(cfg.clickup);
 const state = new State(cfg.stateFile);
+const notify = createNotifier(cfg.whatsapp, (m) => log(m));
+const judge = cfg.jev.apiKey ? (input) => jevJudge(cfg.jev, input) : null;
 let stopping = false;
 let busy = false;
 
@@ -31,14 +35,14 @@ async function poll(userId) {
       continue;
     }
     busy = true;
-    await handleTask(task, { cfg, cu, state, deps: { git, runClaude, runTests }, log });
+    await handleTask(task, { cfg, cu, state, deps: { git, runClaude, runTests, judge }, log, notify });
     busy = false;
   }
 }
 
 async function main() {
   const userId = cfg.clickup.userId || (await cu.me()).id;
-  log(`ClickUp user ${userId}, repos: ${cfg.repos.map((r) => r.name).join(', ')}, MR target: ${cfg.git.targetBranch}${dryRun ? ' (dry run)' : ''}`);
+  log(`ClickUp user ${userId}, repos: ${cfg.repos.map((r) => r.name).join(', ')}, MR target: ${cfg.git.targetBranch}, Jev: ${cfg.jev.apiKey ? cfg.jev.model : 'off'}, WhatsApp: ${cfg.whatsapp.provider || 'off'}${dryRun ? ' (dry run)' : ''}`);
 
   for (;;) {
     try {

@@ -52,8 +52,9 @@ ${checklists ? `\nChecklists:\n${checklists}\n` : ''}`;
 
 export const ACTIONS = ['develop', 'needs_details', 'skip'];
 
+// Triage step: proposes a decision and reformulates the task as a spec (Jev may take the final decision).
 export function buildDecisionPrompt(task, repos, suggestedRepo) {
-  return `You triage a ClickUp task before a developer agent works on it. Look at the task and, read-only, at the repositories to decide what to do. Do not modify anything.
+  return `You triage a ClickUp task before a developer agent works on it. Look at the task and, read-only, at the repositories to decide what to do, then reformulate the task as a clear spec. Do not modify anything.
 
 Repositories:
 ${repos.map((r) => `- ${r.name}: ${r.path}`).join('\n')}
@@ -64,8 +65,12 @@ Decide:
 - "needs_details": the task could be coded but is too vague or ambiguous; list the questions to ask.
 - "skip": the task is not a code change for these repositories (meeting, design, ops, another project...).
 
+When the action is "develop", reformulate the task as a precise spec grounded in the code you read (real file, route, component and table names), so a developer can implement it without guessing.
+
 Reply with ONLY a JSON object, no other text:
-{"action": "develop" | "needs_details" | "skip", "repo": "<repository name>", "reason": "<one sentence>", "questions": ["..."], "plan": ["<implementation step>", "..."]}
+{"action": "develop" | "needs_details" | "skip", "repo": "<repository name>", "reason": "<one sentence>", "questions": ["..."],
+ "spec": {"title": "<imperative title>", "goal": "<what and why, 1-3 sentences>", "acceptance_criteria": ["<testable criterion>", "..."], "out_of_scope": ["..."]},
+ "plan": ["<implementation step>", "..."]}
 
 --- TASK ---
 ${formatTask(task)}`;
@@ -78,18 +83,35 @@ export function parseDecision(text, repos, fallbackRepo) {
   try {
     d = JSON.parse(json);
   } catch {
-    return { action: 'needs_details', repo: fallbackRepo, reason: 'Decision step returned no valid JSON', questions: [], plan: [] };
+    return { action: 'needs_details', repo: fallbackRepo, reason: 'Decision step returned no valid JSON', questions: [], plan: [], spec: null };
   }
+  const strings = (v) => (Array.isArray(v) ? v.map(String) : []);
+  const s = d.spec && typeof d.spec === 'object' ? d.spec : null;
   return {
     action: ACTIONS.includes(d.action) ? d.action : 'needs_details',
     repo: repos.find((r) => r.name === d.repo) ?? fallbackRepo,
     reason: String(d.reason ?? ''),
-    questions: Array.isArray(d.questions) ? d.questions.map(String) : [],
-    plan: Array.isArray(d.plan) ? d.plan.map(String) : [],
+    questions: strings(d.questions),
+    plan: strings(d.plan),
+    spec: s && s.goal ? {
+      title: String(s.title ?? ''), goal: String(s.goal),
+      acceptance: strings(s.acceptance_criteria), outOfScope: strings(s.out_of_scope),
+    } : null,
   };
 }
 
-export function buildDevelopPrompt(task, repo, plan = []) {
+/** The reformulated task as markdown: posted on ClickUp and handed to the developer agent. */
+export function formatSpec(spec) {
+  if (!spec) return '';
+  return [
+    spec.title && `**${spec.title}**`,
+    spec.goal,
+    spec.acceptance.length && `Acceptance criteria:\n${spec.acceptance.map((c) => `- [ ] ${c}`).join('\n')}`,
+    spec.outOfScope.length && `Out of scope:\n${spec.outOfScope.map((c) => `- ${c}`).join('\n')}`,
+  ].filter(Boolean).join('\n\n');
+}
+
+export function buildDevelopPrompt(task, repo, plan = [], spec = null) {
   return `You are a developer handling a ClickUp task in the current repository ("${repo.name}").
 
 1. Explore the codebase first (read CLAUDE.md / convention docs if present) and follow how similar features are built.
@@ -100,7 +122,7 @@ export function buildDevelopPrompt(task, repo, plan = []) {
 
 If the task turns out too ambiguous to implement safely, make no changes and reply with a first line starting with "BLOCKED:" followed by the reason and the questions to ask.
 Otherwise end with a short summary (what changed, tests added, test results). It is posted as a ClickUp comment.
-${plan.length ? `\nTriage plan (a starting point, adjust after reading the code):\n${plan.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n` : ''}
---- TASK ---
+${spec ? `\nSpec (reformulated at triage; this is what you must deliver, every acceptance criterion covered by a test):\n${formatSpec(spec)}\n` : ''}${plan.length ? `\nTriage plan (a starting point, adjust after reading the code):\n${plan.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n` : ''}
+--- ORIGINAL TASK ---
 ${formatTask(task)}`;
 }

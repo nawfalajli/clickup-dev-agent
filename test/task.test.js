@@ -60,3 +60,11 @@ test('config: REPOS parsing and required keys', () => {
   assert.equal(cfg.git.targetBranch, 'dev');
   assert.ok(!cfg.claude.decisionTools.some((t) => /Edit|Write|Bash/.test(t)), 'decision step must be read-only');
 });
+
+test('parseDecision: JEV spec parsed, missing goal -> no spec', async () => {
+  const { formatSpec } = await import('../src/task.js');
+  const d = parseDecision('{"action":"develop","repo":"front","spec":{"title":"T","goal":"G","acceptance_criteria":["a"]}}', repos, repos[0]);
+  assert.deepEqual(d.spec, { title: 'T', goal: 'G', acceptance: ['a'], outOfScope: [] });
+  assert.equal(formatSpec(d.spec), '**T**\n\nG\n\nAcceptance criteria:\n- [ ] a');
+  assert.equal(parseDecision('{"action":"develop","spec":{"title":"T"}}', repos, repos[0]).spec, null);
+});

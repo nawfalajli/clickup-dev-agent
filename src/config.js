@@ -38,6 +38,31 @@ export function parseRepos(raw) {
   });
 }
 
+const WHATSAPP_KEYS = {
+  twilio: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM'],
+  meta: ['META_WHATSAPP_TOKEN', 'META_WHATSAPP_PHONE_ID'],
+  callmebot: ['CALLMEBOT_API_KEY'],
+};
+
+function loadWhatsApp(env) {
+  const provider = env.WHATSAPP_PROVIDER?.trim().toLowerCase() || '';
+  if (!provider) return { provider: '' };
+  if (!WHATSAPP_KEYS[provider]) throw new Error(`WHATSAPP_PROVIDER must be one of: ${Object.keys(WHATSAPP_KEYS).join(', ')}`);
+  const missing = ['WHATSAPP_TO', ...WHATSAPP_KEYS[provider]].filter((k) => !env[k]?.trim());
+  if (missing.length) throw new Error(`WhatsApp (${provider}) needs in .env: ${missing.join(', ')}`);
+  return {
+    provider,
+    to: env.WHATSAPP_TO.trim(),
+    events: list(env.WHATSAPP_EVENTS || 'done,error,blocked,no-changes'),
+    twilioSid: env.TWILIO_ACCOUNT_SID?.trim(),
+    twilioToken: env.TWILIO_AUTH_TOKEN?.trim(),
+    from: env.TWILIO_WHATSAPP_FROM?.trim(),
+    metaToken: env.META_WHATSAPP_TOKEN?.trim(),
+    metaPhoneId: env.META_WHATSAPP_PHONE_ID?.trim(),
+    callmebotKey: env.CALLMEBOT_API_KEY?.trim(),
+  };
+}
+
 export function loadConfig(env = process.env) {
   const missing = ['CLICKUP_API_TOKEN', 'CLICKUP_TEAM_ID', 'REPOS'].filter((k) => !env[k]?.trim());
   if (missing.length) throw new Error(`Missing in .env: ${missing.join(', ')}`);
@@ -74,6 +99,13 @@ export function loadConfig(env = process.env) {
       timeoutMs: num(env.CLAUDE_TIMEOUT_MINUTES, 45) * 60_000,
       decisionTimeoutMs: num(env.CLAUDE_DECISION_TIMEOUT_MINUTES, 10) * 60_000,
     },
+    jev: {
+      apiKey: env.TYPESAFE_API_KEY?.trim() || '',
+      apiUrl: env.TYPESAFE_API_URL || 'https://api.typesafe.ai/v1/systemone',
+      model: env.JEV_MODEL || 'jev-latest',
+      minConfidence: num(env.JEV_MIN_CONFIDENCE, 0.7),
+    },
+    whatsapp: loadWhatsApp(env),
     testTimeoutMs: num(env.TEST_TIMEOUT_MINUTES, 15) * 60_000,
     pollMs: num(env.POLL_INTERVAL_SECONDS, 300) * 1000,
     maxAttempts: num(env.MAX_ATTEMPTS, 2),

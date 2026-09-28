@@ -43,7 +43,8 @@ function setup({ decision, dev = { ok: true, text: 'Added button + test. 12 test
   return { ctx, log, claudeCalls };
 }
 
-const comments = (log) => log.filter((l) => l[0] === 'comment').map((l) => l[2]);
+const allComments = (log) => log.filter((l) => l[0] === 'comment').map((l) => l[2]);
+const comments = (log) => allComments(log).filter((c) => !c.includes('Decision: develop'));
 const statuses = (log) => log.filter((l) => l[0] === 'status').map((l) => l[2]);
 
 test('no details: comment + done, Claude never called', async () => {
@@ -107,4 +108,50 @@ test('failing tests: retried up to MAX_ATTEMPTS, then a give-up comment; branch 
   assert.equal(log.filter((l) => l[0] === 'git.cleanup').length, 2);
   assert.ok(!statuses(log).includes('done'));
   assert.equal(await handleTask(detailed, ctx), null);
+});
+
+test('WhatsApp: done carries the MR link, give-up and blocked are notified too', async () => {
+  const sent = [];
+  const notify = async (event, text) => sent.push([event, text]);
+  const ok = setup();
+  await handleTask(detailed, { ...ok.ctx, notify });
+  assert.equal(sent[0][0], 'done');
+  assert.match(sent[0][1], /DONE[\s\S]*Add export button[\s\S]*merge_requests\/7[\s\S]*app\.clickup\.com\/t\/t1/);
+
+  const bad = setup({ tests: { ok: false, tail: 'boom' } });
+  await handleTask(detailed, { ...bad.ctx, notify });
+  assert.equal(sent.length, 1, 'no notification before the last attempt');
+  await handleTask(detailed, { ...bad.ctx, notify });
+  assert.equal(sent[1][0], 'error');
+  assert.match(sent[1][1], /Gave up after 2[\s\S]*boom/);
+
+  const blocked = setup({ dev: { ok: true, text: 'BLOCKED: which table?' } });
+  await handleTask(detailed, { ...blocked.ctx, notify });
+  assert.deepEqual(sent[2][0], 'blocked');
+  assert.match(sent[2][1], /which table\?/);
+});
+
+test('triage: reformulated spec is posted on ClickUp and handed to the developer', async () => {
+  const spec = { title: 'Add Excel export to contracts list', goal: 'Users export the filtered list.', acceptance_criteria: ['Button in toolbar', 'Exports current filters'], out_of_scope: ['PDF'] };
+  const { ctx, log, claudeCalls } = setup({ decision: { action: 'develop', repo: 'front', reason: 'ui', spec, plan: [] } });
+  assert.equal(await handleTask(detailed, ctx), 'done');
+  assert.match(allComments(log)[0], /Decision: develop in front[\s\S]*Add Excel export[\s\S]*- \[ \] Exports current filters[\s\S]*Out of scope/);
+  assert.match(claudeCalls[0].prompt, /You triage/);
+  assert.match(claudeCalls[1].prompt, /reformulated at triage[\s\S]*Button in toolbar[\s\S]*ORIGINAL TASK/);
+});
+
+test('Jev overrides triage, and a Jev outage keeps the triage decision', async () => {
+  const over = setup();
+  over.ctx.deps.judge = async () => ({ action: 'skip', confidence: 0.92, clarity: 0.3, repo: null, specFaithful: null });
+  assert.equal(await handleTask(detailed, over.ctx), 'skipped');
+  assert.equal(over.claudeCalls.length, 1, 'no developer run after a Jev skip');
+
+  const down = setup();
+  down.ctx.deps.judge = async () => { throw new Error('Jev -> 529'); };
+  assert.equal(await handleTask(detailed, down.ctx), 'done');
+
+  const unsure = setup();
+  unsure.ctx.deps.judge = async () => ({ action: 'develop', confidence: 0.4, clarity: 1, repo: null, specFaithful: null });
+  assert.equal(await handleTask(detailed, unsure.ctx), 'needs-details');
+  assert.match(comments(unsure.log)[0], /not confident enough/);
 });
