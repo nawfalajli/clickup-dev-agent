@@ -47,7 +47,7 @@ export async function handleTask(task, { cfg, cu, state, deps, log, notify = asy
     log(`${taskRef(task)} deciding "${task.name}"`);
     const verdict = await deps.runClaude(
       {
-        bin: cfg.claude.bin, model: cfg.claude.decisionModel, tools: cfg.claude.decisionTools,
+        bin: cfg.claude.bin, ...cfg.claude.decision, tools: cfg.claude.decisionTools,
         timeoutMs: cfg.claude.decisionTimeoutMs, addDirs: cfg.repos.filter((r) => r !== suggested).map((r) => r.path),
       },
       suggested.path,
@@ -103,7 +103,7 @@ async function develop(task, decision, { cfg, cu, deps, log, finish }) {
   try {
     log(`${taskRef(task)} developing in ${repo.name} on ${branch}`);
     const res = await deps.runClaude(
-      { bin: cfg.claude.bin, model: cfg.claude.model, tools: cfg.claude.allowedTools, timeoutMs: cfg.claude.timeoutMs },
+      { bin: cfg.claude.bin, ...cfg.claude.developer, tools: cfg.claude.allowedTools, timeoutMs: cfg.claude.timeoutMs },
       repo.path,
       buildDevelopPrompt(task, repo, decision.plan, decision.spec),
     );

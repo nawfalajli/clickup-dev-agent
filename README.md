@@ -5,12 +5,15 @@
 ![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![Claude Code](https://img.shields.io/badge/developer-Claude%20Code-d97757)
+![Models](https://img.shields.io/badge/models-US%20%2B%20China-0ea5e9)
 ![Jev](https://img.shields.io/badge/final%20decision-Jev%20(TypeSafe)-7c3aed)
 ![WhatsApp](https://img.shields.io/badge/notifications-WhatsApp-25D366?logo=whatsapp&logoColor=white)
 
 The service polls ClickUp for open tasks assigned to you and develops them with Claude Code. It works out which repository each task belongs to, then builds the feature or fix following the project's existing conventions. Before delivering anything it runs the tests to make sure the work is sound. It then opens a merge request into your integration branch, reports back on the ClickUp task, and sends a WhatsApp message to the developer the task is assigned to.
 
 Two models split the work. **Claude Code** is the developer: it reads the code, rewrites the task as a clear spec and implements it. **Jev** ([TypeSafe AI](https://typesafe.ai/blog/introducing-system-one-models-and-jev)) is the judge: it takes the final develop / needs-details / skip decision and returns a calibrated confidence score, so uncertain tasks go back to a human instead of being guessed at.
+
+The developer agent is not tied to Claude models. Claude Code can run on any Anthropic-compatible endpoint, so you can pick **US models** (Anthropic Claude, or OpenAI GPT, Google Gemini, xAI Grok and Meta Llama through OpenRouter) or **Chinese models** (DeepSeek, Qwen, Kimi, GLM, MiniMax). See [Models](#models).
 
 ---
 
@@ -21,6 +24,7 @@ Two models split the work. **Claude Code** is the developer: it reads the code, 
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
+- [Models](#models)
 - [Commands](#commands)
 - [Task outcomes](#task-outcomes)
 - [Project structure](#project-structure)
@@ -171,14 +175,23 @@ DEFAULT_REPO=front
 
 **Routing:** a task tagged `front` or `back` in ClickUp goes to the repository with that name. Otherwise it goes to `DEFAULT_REPO`. The decision step can override the choice when the task clearly belongs elsewhere.
 
+### Models
+
+| Key | Default | Description |
+|---|---|---|
+| `LLM_PROVIDER` | `anthropic` | Provider of the developer agent's model. See [Models](#models). |
+| `LLM_MODEL` | provider default | Developer model. `CLAUDE_MODEL` is still accepted. |
+| `DECISION_PROVIDER` | `LLM_PROVIDER` | Provider for the read-only decision step |
+| `DECISION_MODEL` | `LLM_MODEL` on the same provider, else that provider's default | Decision model. `CLAUDE_DECISION_MODEL` is still accepted. |
+| `<PROVIDER>_API_KEY` | | Key of each provider in use (`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, ...) |
+| `<PROVIDER>_BASE_URL` | preset | Overrides a preset endpoint, e.g. for mainland China |
+
 ### Claude Code
 
 | Key | Default | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | | Optional. When empty, your logged-in Claude Code session is used. |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
-| `CLAUDE_MODEL` | CLI default | Model for the developer agent |
-| `CLAUDE_DECISION_MODEL` | `CLAUDE_MODEL` | Model for the decision step |
 | `CLAUDE_ALLOWED_TOOLS` | safe allowlist | Comma-separated tools the developer agent may use |
 | `CLAUDE_TIMEOUT_MINUTES` | `45` | Maximum time for one development run |
 | `CLAUDE_DECISION_TIMEOUT_MINUTES` | `10` | Maximum time for one decision run |
@@ -226,6 +239,36 @@ https://app.clickup.com/t/86ab12
 
 ---
 
+## Models
+
+The agent always runs inside Claude Code, with the same tool allowlist and read-only decision step. Only the model behind it changes. For a provider other than `anthropic`, the service starts Claude Code with `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` set to that provider's Anthropic-compatible endpoint and key. It maps every Claude alias (opus, sonnet, haiku) to your model, and never forwards `ANTHROPIC_API_KEY`.
+
+| Region | `LLM_PROVIDER` | Models | Key | Default model | Endpoint |
+|---|---|---|---|---|---|
+| 🇺🇸 US | `anthropic` | Claude | `ANTHROPIC_API_KEY` or Claude Code login | CLI default | Anthropic |
+| 🇺🇸 US | `openrouter` | OpenAI GPT, Google Gemini, xAI Grok, Meta Llama, plus Chinese models | `OPENROUTER_API_KEY` | `openai/gpt-5` | `https://openrouter.ai/api` |
+| 🇨🇳 CN | `deepseek` | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-chat` | `https://api.deepseek.com/anthropic` |
+| 🇨🇳 CN | `qwen` | Alibaba Qwen | `DASHSCOPE_API_KEY` | `qwen3-coder-plus` | `https://dashscope-intl.aliyuncs.com/apps/anthropic` |
+| 🇨🇳 CN | `kimi` | Moonshot Kimi | `MOONSHOT_API_KEY` | `kimi-k2-turbo-preview` | `https://api.moonshot.ai/anthropic` |
+| 🇨🇳 CN | `glm` | Zhipu GLM | `ZAI_API_KEY` | `glm-4.6` | `https://api.z.ai/api/anthropic` |
+| 🇨🇳 CN | `minimax` | MiniMax | `MINIMAX_API_KEY` | `MiniMax-M2` | `https://api.minimax.io/anthropic` |
+| any | `custom` | Any Anthropic-compatible endpoint, e.g. a LiteLLM proxy in front of OpenAI or Gemini | `CUSTOM_API_KEY` + `CUSTOM_BASE_URL` | set `LLM_MODEL` | yours |
+
+Providers rename models often. Check your provider's model list and set `LLM_MODEL` when a default is outdated. Endpoints can be overridden with `<PROVIDER>_BASE_URL`, for example `ZAI_BASE_URL=https://open.bigmodel.cn/api/anthropic` for mainland China.
+
+The two steps can use different providers. A cheap model can handle triage and a stronger one the development:
+
+```dotenv
+LLM_PROVIDER=anthropic
+LLM_MODEL=opus
+DECISION_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-...
+```
+
+> The Claude Code tool format works best with models trained for agentic coding. If a model makes no changes or keeps getting blocked, try the provider's coder model. `costUsd` in `state.json` is recorded only for Anthropic models, because Claude Code prices every model at Anthropic rates.
+
+---
+
 ## Commands
 
 | Command | What it does |
@@ -266,6 +309,7 @@ clickup-dev-agent/
 │   ├── notify.js    # WhatsApp to the assigned developer (Twilio / Meta / CallMeBot)
 │   ├── task.js      # prompts, decision parsing, routing, branch names, fingerprints
 │   ├── agent.js     # Claude Code headless runs + verification test run
+│   ├── providers.js # model providers (US + China) -> Claude Code endpoint env
 │   ├── git.js       # task branch, cleanup, commit + push with MR options
 │   ├── clickup.js   # minimal ClickUp API v2 client
 │   ├── config.js    # .env loading and validation
@@ -289,6 +333,7 @@ npm test
 - **worker:** every outcome path, with ClickUp, Claude, Jev and git faked
 - **jev:** request shape against the documented TypeSafe API, 429/529 retry, confidence gating, spec rejection
 - **notify:** Twilio, Meta and CallMeBot request shapes, muted events, provider errors never thrown
+- **providers:** US / Chinese provider presets, endpoint and model overrides, missing keys, per-step providers, env passed to the child
 - **git:** the real branch → push-with-MR-options → cleanup flow against a local bare repository, checking that the target branch is never pushed to directly
 
 The tests never call ClickUp, Claude, Jev or WhatsApp.
@@ -307,6 +352,8 @@ The tests never call ClickUp, Claude, Jev or WhatsApp.
 | `Jev -> 401` | Invalid `TYPESAFE_API_KEY`. The service keeps going on the triage decision. |
 | No WhatsApp message | Check `WHATSAPP_EVENTS` and the logs (`WhatsApp notification failed: ...`). With Meta, the 24-hour window may have expired. |
 | `Claude Code exited …` | Run `claude` once interactively to log in, or set `ANTHROPIC_API_KEY`. |
+| `Provider … needs in .env: …` | Set the listed key(s) for the chosen `LLM_PROVIDER` / `DECISION_PROVIDER`. |
+| `Claude Code exited …` with another provider | Check the key, the endpoint (international vs mainland China) and that `LLM_MODEL` exists on that provider. |
 | Tasks are never picked | Check `PICK_STATUSES` and that the tasks are assigned to the token's user. |
 
 ---
@@ -316,5 +363,5 @@ The tests never call ClickUp, Claude, Jev or WhatsApp.
 - **Never commit `.env`.** It is in `.gitignore`. Only `.env.example`, which has empty values, belongs in the repository.
 - Use a ClickUp token that belongs to the account the tasks are assigned to, and rotate it if it leaks.
 - The agent works from task descriptions, so only point the service at workspaces whose authors you trust. Merge-request review is the final safety net: always review before merging.
-- Every Claude run is billed to your Claude Code account or API key. Empty tasks never reach a model, and triage plus Jev stop out-of-scope or vague tasks before the more expensive development run. Jev is billed per input token by TypeSafe.
+- Every agent run is billed to your Claude Code account or to the chosen provider's API key. With a non-Anthropic provider, task descriptions and code excerpts are sent to that provider: choose one your organisation allows for this code. Empty tasks never reach a model, and triage plus Jev stop out-of-scope or vague tasks before the more expensive development run. Jev is billed per input token by TypeSafe.
 - TypeSafe and WhatsApp keys live in `.env` like every other secret.

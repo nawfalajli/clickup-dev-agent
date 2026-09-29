@@ -7,6 +7,7 @@ import * as git from './git.js';
 import { runClaude, runTests } from './agent.js';
 import { createNotifier } from './notify.js';
 import { jevJudge } from './jev.js';
+import { describeModel } from './providers.js';
 
 const args = new Set(process.argv.slice(2));
 const once = args.has('--once');
@@ -42,7 +43,7 @@ async function poll(userId) {
 
 async function main() {
   const userId = cfg.clickup.userId || (await cu.me()).id;
-  log(`ClickUp user ${userId}, repos: ${cfg.repos.map((r) => r.name).join(', ')}, MR target: ${cfg.git.targetBranch}, Jev: ${cfg.jev.apiKey ? cfg.jev.model : 'off'}, WhatsApp: ${cfg.whatsapp.provider || 'off'}${dryRun ? ' (dry run)' : ''}`);
+  log(`ClickUp user ${userId}, repos: ${cfg.repos.map((r) => r.name).join(', ')}, MR target: ${cfg.git.targetBranch}, developer: ${describeModel(cfg.claude.developer)}, decision: ${describeModel(cfg.claude.decision)}, Jev: ${cfg.jev.apiKey ? cfg.jev.model : 'off'}, WhatsApp: ${cfg.whatsapp.provider || 'off'}${dryRun ? ' (dry run)' : ''}`);
 
   for (;;) {
     try {

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { PROVIDERS, resolveModel } from './providers.js';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -7,6 +8,7 @@ export const ROOT = path.resolve(import.meta.dirname, '..');
 // the user's git identity / Claude login, so empty ones are removed instead.
 const PASSTHROUGH = [
   'ANTHROPIC_API_KEY',
+  ...new Set(Object.values(PROVIDERS).filter((p) => p.key).map((p) => p.key)),
   'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL',
 ];
 
@@ -68,6 +70,14 @@ export function loadConfig(env = process.env) {
   if (missing.length) throw new Error(`Missing in .env: ${missing.join(', ')}`);
 
   const repos = parseRepos(env.REPOS);
+  // Developer and decision models can come from different providers (e.g. triage on DeepSeek,
+  // development on Claude). The decision step inherits the developer model only on the same provider.
+  const devProvider = env.LLM_PROVIDER || 'anthropic';
+  const decisionProvider = env.DECISION_PROVIDER || devProvider;
+  const devModel = env.LLM_MODEL || env.CLAUDE_MODEL || '';
+  const developer = resolveModel(env, devProvider, devModel);
+  const decision = resolveModel(env, decisionProvider,
+    env.DECISION_MODEL || env.CLAUDE_DECISION_MODEL || (decisionProvider.trim().toLowerCase() === developer.provider ? devModel : ''));
   const defaultRepo = env.DEFAULT_REPO || repos[0].name;
   if (!repos.some((r) => r.name === defaultRepo)) throw new Error(`DEFAULT_REPO "${defaultRepo}" is not in REPOS`);
 
@@ -92,8 +102,8 @@ export function loadConfig(env = process.env) {
     },
     claude: {
       bin: env.CLAUDE_BIN || 'claude',
-      model: env.CLAUDE_MODEL || '',
-      decisionModel: env.CLAUDE_DECISION_MODEL || env.CLAUDE_MODEL || '',
+      developer,
+      decision,
       allowedTools: list(env.CLAUDE_ALLOWED_TOOLS || DEFAULT_ALLOWED_TOOLS),
       decisionTools: list(DECISION_TOOLS),
       timeoutMs: num(env.CLAUDE_TIMEOUT_MINUTES, 45) * 60_000,
